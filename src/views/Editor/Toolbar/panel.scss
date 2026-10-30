@@ -1,0 +1,87 @@
+.toolbar {
+  --panel-accent: #b83c20;
+  --panel-selected: #fff0e9;
+  --panel-field: #f5f6f8;
+  --panel-line: #e2e5e9;
+  border-left: 1px solid #e9ebef;
+  background: #fff;
+  color: #424951;
+  display: flex;
+  flex-direction: column;
+  .panel-heading { display: flex; justify-content: flex-end; padding: 5px 10px 0; }
+  .collapse-button, .icon-tabs button {
+    border: 0; background: transparent; color: #858d98; display: flex;
+    align-items: center; justify-content: center; cursor: pointer;
+    width: 30px; height: 30px; font-size: 17px; border-radius: 8px;
+  }
+  .panel-tabs {
+    display: flex; flex-shrink: 0; margin: 5px 12px 8px; padding: 4px;
+    border-radius: 12px; background: var(--panel-field); gap: 4px;
+    button {
+      position: relative; flex: 1; min-width: 0; height: 34px;
+      padding: 0 5px; border: 0; border-radius: 9px; background: transparent;
+      color: #737b85; font-size: 12px; cursor: pointer;
+      transition: background-color .15s, color .15s, box-shadow .15s;
+      & + button::before {
+        content: ''; position: absolute; left: -3px; top: 10px;
+        width: 1px; height: 14px; background: var(--panel-line);
+      }
+      &.active { background: #fff; color: var(--panel-accent); font-weight: 600; box-shadow: 0 1px 4px #25334912; }
+      &:hover:not(.active) { background: #eaedf1; color: #424951; }
+    }
+  }
+  > .content { padding: 12px 14px 24px; font-size: 13px; @include overflow-overlay(); }
+  .icon-tabs { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12px; }
+  .icon-tabs button.active { color: var(--panel-accent); background: var(--panel-selected); }
+  .collapse-button:hover, .icon-tabs button:hover { color: var(--panel-accent); background: #f5f6f8; }
+  &.collapsed .panel-heading { justify-content: center; padding: 5px 3px; }
+  button:focus-visible { outline: 2px solid var(--panel-accent); outline-offset: 2px; }
+
+  :deep(.title) { color: #343b44; font-weight: 600; letter-spacing: .2px; }
+  :deep(.button), :deep(.select), :deep(.input), :deep(.number-input), :deep(.text-area) {
+    border-radius: 9px; border-color: #edf0f3; background-color: var(--panel-field);
+    transition: background-color .15s, border-color .15s, box-shadow .15s;
+  }
+  :deep(.button:not(.disabled):not(.primary):not(.checked):hover),
+  :deep(.select:not(.disabled):hover), :deep(.input:not(.disabled):hover), :deep(.number-input:not(.disabled):hover) {
+    background-color: #edf0f4; border-color: #dce1e7; color: #343b44;
+  }
+  :deep(.button.checked) {
+    color: var(--panel-accent); background: var(--panel-selected); border-color: #f2d3c9;
+  }
+  :deep(.button.checked:hover) { color: #9f321b; background: #ffe4d9; border-color: #eac1b2; }
+  :deep(.input:focus-within), :deep(.number-input:focus-within), :deep(.select:focus-within) {
+    border-color: var(--panel-accent); box-shadow: 0 0 0 2px #d1442414; background: #fff;
+  }
+  :deep(.button.primary) { background: var(--panel-accent); color: #fff; border-color: var(--panel-accent); }
+  :deep(.button.disabled), :deep(.select.disabled), :deep(.input.disabled), :deep(.number-input.disabled) {
+    color: #a9afb7; border-color: #f0f1f3; background: #f8f9fa; cursor: default;
+  }
+  :deep(.number-input .handlers) { border-left: 0; }
+  :deep(.number-input .handler + .handler) { border-top-color: #e7e9ed; }
+  :deep(.number-input input), :deep(.input input) { background: transparent; }
+  :deep(.color-block), :deep(.color-block .content) { border-radius: 5px; }
+
+  // Short separators group adjacent actions; stacked sections retain a short horizontal rule.
+  :deep(.button-group) { border-radius: 11px; background: var(--panel-field); padding: 3px; }
+  :deep(.button-group button.button) {
+    position: relative; border: 0; border-radius: 8px !important; background-color: transparent;
+    padding-left: 5px; padding-right: 5px;
+  }
+  :deep(.button-group button.button.checked) { background: var(--panel-selected); color: var(--panel-accent); }
+  :deep(.button-group button.button:not(.disabled):not(.checked):hover) { background: #e9ecf0; }
+  :deep(.button-group button.button::after) { display: none; }
+  :deep(.button-group > * + *) {
+    position: relative;
+    &::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 1px; background: var(--panel-line); pointer-events: none; }
+  }
+  :deep(.select-group) { gap: 6px; }
+  :deep(.select-group .select-wrap .select) { border: 1px solid #edf0f3; border-radius: 9px !important; }
+  :deep(.divider.horizontal) { width: 24px; border-color: #dfe3e9; margin: 20px 0 !important; }
+  :deep(.divider.vertical) { height: 14px; border-color: #dfe3e9; }
+  :deep(.background-image), :deep(.theme-item) { border-radius: 10px; overflow: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toolbar .panel-tabs button, .toolbar :deep(.button), .toolbar :deep(.select),
+  .toolbar :deep(.input), .toolbar :deep(.number-input) { transition: none; }
+}

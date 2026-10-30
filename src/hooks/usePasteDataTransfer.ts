@@ -1,0 +1,46 @@
+import { getImageDataURL } from '@/utils/image'
+import useCreateElement from './useCreateElement'
+import useImport from './useImport'
+
+export default () => {
+  const { createImageElement } = useCreateElement()
+  const { importPPTXFile } = useImport()
+
+  const pasteDataTransfer = (dataTransfer: DataTransfer) => {
+    const dataItems = dataTransfer.items
+    const dataTransferFirstItem = dataItems[0]
+
+    // 检查事件对象中是否存在有效文件，存在则插入对应数据，否则可继续检查是否存在文字
+    let isFile = false
+
+    for (const item of dataItems) {
+      if (item.kind === 'file') {
+        if (item.type.indexOf('image') !== -1) {
+          const imageFile = item.getAsFile()
+          if (imageFile) {
+            getImageDataURL(imageFile).then(dataURL => createImageElement(dataURL))
+            isFile = true
+          }
+        }
+
+      }
+    }
+
+    if (!isFile && dataTransferFirstItem && dataTransferFirstItem.kind === 'file') {
+      if (!isFile && dataTransferFirstItem.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        const pptxFile = dataTransferFirstItem.getAsFile()
+        if (pptxFile) {
+          importPPTXFile([pptxFile])
+          isFile = true
+        }
+      }
+
+    }
+
+    return { isFile, dataTransferFirstItem }
+  }
+
+  return {
+    pasteDataTransfer,
+  }
+}

@@ -1,0 +1,224 @@
+name: Remove contact metadata
+on:
+  push:
+    paths: [.github/workflows/privacy-cleanup.yml]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: privacy-cleanup
+  cancel-in-progress: true
+jobs:
+  cleanup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'fonttools[woff]'
+      - name: Optimize Heiti web fonts and verify characters and outlines
+        run: |
+          python - <<'PYWEB'
+          from pathlib import Path
+          from fontTools.ttLib import TTFont
+          from fontTools import subset
+          from fontTools.pens.recordingPen import DecomposingRecordingPen
+          import brotli
+          compress = brotli.compress
+          brotli.compress = lambda data, **options: compress(data, **{**options, 'quality': 5})
+          for name in ('STHeitiSC-Light', 'STHeitiSC-Medium'):
+              path = Path('src/assets/fonts') / (name + '.woff2')
+              if path.stat().st_size < 12000000:
+                  continue
+              original = TTFont(path, recalcBBoxes=False, recalcTimestamp=False)
+              cmap = original.getBestCmap()
+              widths = {cp: original['hmtx'].metrics[glyph][0] for cp, glyph in cmap.items()}
+              samples = sorted(cmap)[::max(1, len(cmap) // 128)]
+              samples += [ord(c) for c in '中文字体测试建筑设计ABC123，。！？' if ord(c) in cmap]
+              def outlines(font, points):
+                  glyphs = font.getGlyphSet()
+                  mapping = font.getBestCmap()
+                  result = {}
+                  for cp in points:
+                      pen = DecomposingRecordingPen(glyphs)
+                      glyphs[mapping[cp]].draw(pen)
+                      result[cp] = pen.value
+                  return result
+              expected = outlines(original, samples)
+              font = original
+              options = subset.Options()
+              options.hinting = False
+              options.name_IDs = ['*']
+              options.name_legacy = True
+              options.name_languages = ['*']
+              worker = subset.Subsetter(options=options)
+              worker.populate(unicodes=list(cmap))
+              worker.subset(font)
+              font.flavor = 'woff2'
+              temporary = path.with_suffix('.optimized.woff2')
+              font.save(temporary)
+              checked = TTFont(temporary, recalcBBoxes=False)
+              mapping = checked.getBestCmap()
+              assert set(mapping) == set(cmap), name
+              assert all(checked['hmtx'].metrics[glyph][0] == widths[cp] for cp, glyph in mapping.items()), name
+              assert outlines(checked, samples) == expected, name
+              print(name, 'characters:', len(mapping), 'bytes:', path.stat().st_size, '->', temporary.stat().st_size)
+              checked.close()
+              original.close()
+              temporary.replace(path)
+              del checked, original, font, worker
+              import gc
+              gc.collect()
+          PYWEB
+      - name: Remove font contact information and verify font data
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          import brotli
+          compress = brotli.compress
+          brotli.compress = lambda data, **options: compress(data, **{**options, 'quality': 5})
+          from fontTools.ttLib import TTFont
+          email = re.compile(r'[\w.%+\-]+@[\w.\-]+\.[A-Za-z]{2,}')
+          url = re.compile(r'https?://[^\s<>\)\"]+')
+          def clean(text):
+              text = email.sub('', text)
+              def keep_license(match):
+                  value = match.group()
+                  return value if any(part in value.lower() for part in ('/ofl', '/licenses/', '/license-', '/license.')) else ''
+              text = url.sub(keep_license, text)
+              return re.sub(r'\(\s*\)', '', text)
+          changed = 0
+          for path in sorted(Path('src/assets/fonts').glob('*.woff2')):
+              font = TTFont(path, lazy=True)
+              family = sorted((r.nameID, r.toUnicode()) for r in font['name'].names if r.nameID in (1,2,4,6,16,17))
+              count = 0
+              for record in font['name'].names:
+                  text = record.toUnicode()
+                  updated = clean(text)
+                  if text != updated:
+                      record.string = updated.encode(record.getEncoding(), errors='replace')
+                      count += 1
+              if font.flavorData and font.flavorData.metaData:
+                  font.flavorData.metaData = clean(font.flavorData.metaData.decode('utf-8')).encode('utf-8')
+              if count:
+                  original = {tag:font.getTableData(tag) for tag in font.keys() if tag not in ('GlyphOrder','name','head')}
+                  temporary = path.with_suffix('.clean.woff2')
+                  font.save(temporary)
+                  checked = TTFont(temporary, lazy=True)
+                  assert family == sorted((r.nameID,r.toUnicode()) for r in checked['name'].names if r.nameID in (1,2,4,6,16,17)), path.name
+                  for tag,data in original.items():
+                      assert checked.getTableData(tag) == data, (path.name,tag)
+                  for record in checked['name'].names:
+                      text = record.toUnicode()
+                      assert not email.search(text)
+                      assert clean(text) == text
+                  checked.close()
+                  temporary.replace(path)
+                  changed += 1
+              font.close()
+              print(path.name, 'contact records removed:', count)
+          print('Sanitized fonts:', changed)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Regression tests
+        run: |
+          set -e
+          for test in tests/*.test.mjs; do node "$test"; done
+      - run: npm run build
+      - name: Verify all three fonts load in Chromium
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+          node --input-type=module <<'PYBROWSER'
+          import { chromium } from 'playwright'
+          import { spawn } from 'node:child_process'
+          const server = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', '4173'], { stdio: 'ignore' })
+          let browser
+          try {
+            for (let i = 0; i < 60; i++) {
+              try { await fetch('http://127.0.0.1:4173/'); break } catch { await new Promise(r => setTimeout(r, 500)) }
+            }
+            browser = await chromium.launch()
+            const page = await browser.newPage()
+            await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' })
+            await page.waitForFunction(() => Array.from(document.fonts).some(f => f.family.includes('SimSun')))
+            const results = await page.evaluate(async () => {
+              const results = []
+              for (const name of ['SimSun', 'STHeitiSC-Light', 'STHeitiSC-Medium']) {
+                const faces = await document.fonts.load('24px "' + name + '"', '中文字体测试建筑设计ABC123')
+                if (!faces.length || faces.some(f => f.status !== 'loaded')) throw new Error('Font failed: ' + name)
+                results.push({ name, status: faces[0].status })
+              }
+              return results
+            })
+            console.log(JSON.stringify(results))
+          } finally {
+            if (browser) await browser.close()
+            server.kill('SIGTERM')
+          }
+          PYBROWSER
+      - name: Verify iPad touch controls in WebKit and desktop mouse controls
+        run: |
+          npx playwright install --with-deps webkit
+          node tests/touch-browser.mjs
+      - name: Wait for previous deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..60}; do
+            active=$(gh api repos/${{ github.repository }}/actions/runs --jq '[.workflow_runs[] | select(.name == "Build and deploy WPT" and (.status == "in_progress" or .status == "queued"))] | length')
+            if [ "$active" = 0 ]; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+      - name: Replace branch history with anonymous author
+        env:
+          GIT_AUTHOR_NAME: WPT Maintainer
+          GIT_AUTHOR_EMAIL: 291257027+YC-F-GHb@users.noreply.github.com
+          GIT_COMMITTER_NAME: WPT Maintainer
+          GIT_COMMITTER_EMAIL: 291257027+YC-F-GHb@users.noreply.github.com
+        run: |
+          expected=$(git rev-parse HEAD)
+          git checkout --orphan privacy-clean
+          git add .
+          git commit -m "Publish WPT without personal contact metadata"
+          git push --force-with-lease=refs/heads/main:$expected origin HEAD:main
+          test "$(git rev-list --count HEAD)" = 1
+          test -z "$(git log --format='%ae %ce' | grep -v 'users.noreply.github.com')"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
+        id: deployment
+
+# Refresh white rounded sidebar controls; restore original background export.
+
+# Verify black presentation margins on iPad and restore editor appearance on exit.
+
+# Verify toolbar deletion and touch image cropping on iPad.
+
+# Match delete icon size to toolbar peers and verify desktop visibility.
+
+# Verify iPad tooltips are disabled while desktop hover labels remain available.
+
+# Verify PDF export invokes printing after resources load in Chromium and WebKit.
+
+# Verify direct PDF downloads have exact slide page dimensions and no browser margins or headers.
+
+# Inspect actual PDF JPEG pixels to verify source images survive WebKit rendering.
+
+# Publish automatic-save file browser entry and JSON backup list.

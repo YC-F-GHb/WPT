@@ -1,0 +1,54 @@
+import { onMounted, onUnmounted, ref, watch, type ShallowRef } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useSlidesStore } from '@/store'
+
+export default (wrapRef?: ShallowRef<HTMLElement | null>) => {
+  const slidesStore = useSlidesStore()
+  const { viewportRatio } = storeToRefs(slidesStore)
+
+  const slideWidth = ref(0)
+  const slideHeight = ref(0)
+  const getSlideWrap = () => wrapRef?.value || document.querySelector<HTMLElement>('.wpt-screen') || document.body
+
+  // 计算和更新幻灯片内容的尺寸（按比例自适应屏幕）
+  const setSlideContentSize = () => {
+    const slideWrapRef = getSlideWrap()
+    const winWidth = slideWrapRef.clientWidth
+    const winHeight = slideWrapRef.clientHeight
+    let width, height
+
+    if (winHeight / winWidth === viewportRatio.value) {
+      width = winWidth
+      height = winHeight
+    }
+    else if (winHeight / winWidth > viewportRatio.value) {
+      width = winWidth
+      height = winWidth * viewportRatio.value
+    }
+    else {
+      width = winHeight / viewportRatio.value
+      height = winHeight
+    }
+    slideWidth.value = width
+    slideHeight.value = height
+  }
+
+  let resizeObserver: ResizeObserver | undefined
+  onMounted(() => {
+    setSlideContentSize()
+    resizeObserver = new ResizeObserver(setSlideContentSize)
+    resizeObserver.observe(getSlideWrap())
+    window.addEventListener('resize', setSlideContentSize)
+  })
+  onUnmounted(() => {
+    resizeObserver?.disconnect()
+    window.removeEventListener('resize', setSlideContentSize)
+  })
+
+  watch(viewportRatio, setSlideContentSize)
+
+  return {
+    slideWidth,
+    slideHeight,
+  }
+}
